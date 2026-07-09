@@ -1,6 +1,8 @@
 // Trip Memories Platform - API Client
 
-const API_BASE_URL = localStorage.getItem("api_base_url") || "http://localhost:8050";
+const isLocalHost = ["localhost", "127.0.0.1"].includes(window.location.hostname);
+const DEFAULT_API_BASE_URL = isLocalHost ? "http://localhost:8050" : "https://api.ignexs.com";
+const API_BASE_URL = localStorage.getItem("api_base_url") || DEFAULT_API_BASE_URL;
 
 const API = {
     async request(endpoint, options = {}) {
