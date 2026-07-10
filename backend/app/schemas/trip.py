@@ -31,6 +31,7 @@ class TripMemberResponse(BaseModel):
     user_id: int
     role: str
     joined_at: datetime
+    status: str = "accepted"  # 'pending', 'accepted', 'declined' (invites only; real members are always 'accepted')
     user: Optional[UserResponse] = None
 
     class Config:

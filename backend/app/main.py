@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 import sys
 
 from backend.app.config import settings
-from backend.app.database import engine, Base
+from backend.app.database import engine, Base, run_schema_migrations
 from backend.app.routes import auth, trips, media, activities, users
 from backend.app.middlewares.error_handler import error_handling_middleware
 
@@ -18,6 +18,7 @@ async def lifespan(app: FastAPI):
     # Skip database initialization if running inside a pytest testing context
     if "pytest" not in sys.modules:
         Base.metadata.create_all(bind=engine)
+        run_schema_migrations()
     yield
 
 app = FastAPI(

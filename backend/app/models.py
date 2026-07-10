@@ -101,6 +101,7 @@ class TripInvite(Base):
     role = Column(String(50), default="member", nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
     used = Column(Boolean, default=False, nullable=False)
+    status = Column(String(20), default="pending", nullable=False)  # 'pending', 'accepted', 'declined'
 
     # Relationships
     trip = relationship("Trip", back_populates="invites")

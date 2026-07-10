@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import declarative_base, sessionmaker
 from backend.app.config import settings
 
@@ -22,3 +22,19 @@ def get_db():
         yield db
     finally:
         db.close()
+
+def run_schema_migrations():
+    """Lightweight, additive schema patch for existing SQLite/Postgres databases
+    created before new nullable/defaulted columns were introduced (no Alembic in this project)."""
+    inspector = inspect(engine)
+    if "trip_invites" not in inspector.get_table_names():
+        return
+    columns = [c["name"] for c in inspector.get_columns("trip_invites")]
+    if "status" not in columns:
+        with engine.begin() as conn:
+            conn.execute(text(
+                "ALTER TABLE trip_invites ADD COLUMN status VARCHAR(20) NOT NULL DEFAULT 'pending'"
+            ))
+            conn.execute(text(
+                "UPDATE trip_invites SET status = 'accepted' WHERE used = true"
+            ))

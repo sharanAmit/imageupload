@@ -259,8 +259,8 @@ def test_google_login_with_invite(monkeypatch):
     assert member is not None
     assert member.role == "member"
     
-    # Verify invite is marked as used
+    # Verify invite is marked as accepted
     db.refresh(invite)
-    assert invite.used is True
+    assert invite.status == "accepted"
 
 

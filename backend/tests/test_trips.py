@@ -125,15 +125,70 @@ def test_invite_member():
         }
     )
     assert invite_response.status_code == 200
-    assert invite_response.json()["role"] == "member"
+    invite_data = invite_response.json()
+    assert invite_data["role"] == "member"
+    assert invite_data["status"] == "pending"
+    invite_token = invite_data["user"]["uuid"]
 
-    # Invitee tries to fetch trip details (should now work because they are added)
+    # Invite is pending, so the invitee is NOT a member yet
+    invitee_details = client.get(
+        f"/trip/{trip_uuid}",
+        headers={"Authorization": f"Bearer {invitee_token}"}
+    )
+    assert invitee_details.status_code == 403
+
+    # Invitee accepts the invite via the public token-based endpoint
+    accept_response = client.post(f"/trip/invite/{invite_token}/accept")
+    assert accept_response.status_code == 200
+    assert accept_response.json()["trip_name"] == "Shared Trip"
+
+    # Now the invitee is a member and can view the trip
     invitee_details = client.get(
         f"/trip/{trip_uuid}",
         headers={"Authorization": f"Bearer {invitee_token}"}
     )
     assert invitee_details.status_code == 200
     assert len(invitee_details.json()["members"]) == 2
+
+def test_decline_invite():
+    owner_token = create_user_and_login("tripowner@example.com", "Owner User")
+    invitee_token = create_user_and_login("invitee@example.com", "Invitee User")
+
+    response = client.post(
+        "/trip",
+        headers={"Authorization": f"Bearer {owner_token}"},
+        json={"trip_name": "Shared Trip", "description": "Collaborators welcome"}
+    )
+    trip_uuid = response.json()["uuid"]
+
+    invite_response = client.post(
+        f"/trip/{trip_uuid}/invite",
+        headers={"Authorization": f"Bearer {owner_token}"},
+        json={"email": "invitee@example.com", "role": "member"}
+    )
+    invite_token = invite_response.json()["user"]["uuid"]
+
+    decline_response = client.post(f"/trip/invite/{invite_token}/decline")
+    assert decline_response.status_code == 200
+
+    # Declining does not add membership
+    invitee_details = client.get(
+        f"/trip/{trip_uuid}",
+        headers={"Authorization": f"Bearer {invitee_token}"}
+    )
+    assert invitee_details.status_code == 403
+
+    # Owner still sees the invite, now marked as declined
+    owner_details = client.get(
+        f"/trip/{trip_uuid}",
+        headers={"Authorization": f"Bearer {owner_token}"}
+    )
+    declined_entries = [m for m in owner_details.json()["members"] if m["status"] == "declined"]
+    assert len(declined_entries) == 1
+
+    # Responding again should fail — the invite has already been resolved
+    second_accept = client.post(f"/trip/invite/{invite_token}/accept")
+    assert second_accept.status_code == 404
 
 def test_user_search():
     # Create two users

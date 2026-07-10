@@ -126,6 +126,18 @@ const API = {
         return await this.request(`/auth/invite/${encodeURIComponent(token)}`);
     },
 
+    async acceptInvite(token) {
+        return await this.request(`/trip/invite/${encodeURIComponent(token)}/accept`, {
+            method: "POST"
+        });
+    },
+
+    async declineInvite(token) {
+        return await this.request(`/trip/invite/${encodeURIComponent(token)}/decline`, {
+            method: "POST"
+        });
+    },
+
     // Auth endpoints
     async login(email, password) {
         const data = await this.request("/login", {

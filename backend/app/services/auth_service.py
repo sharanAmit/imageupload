@@ -77,7 +77,7 @@ class AuthService:
             from backend.app.models import TripInvite
             invite = db.query(TripInvite).filter(
                 TripInvite.uuid == invite_token,
-                TripInvite.used == False
+                TripInvite.status == "pending"
             ).first()
             if not invite:
                 raise HTTPException(
@@ -106,9 +106,9 @@ class AuthService:
             
             # Add member
             TripRepository.add_member(db, invite.trip_id, created_user.id, invite.role)
-            
-            # Mark invite as used
-            invite.used = True
+
+            # Registering via the invite link is how a new user accepts the invite
+            invite.status = "accepted"
             db.commit()
             
             # Log join activity
@@ -285,9 +285,9 @@ class AuthService:
             
             invite = db.query(TripInvite).filter(
                 TripInvite.uuid == invite_token,
-                TripInvite.used == False
+                TripInvite.status == "pending"
             ).first()
-            
+
             if invite:
                 # Ensure the invited email matches the Google user email (case-insensitive)
                 if invite.email.lower() == email.lower():
@@ -296,9 +296,9 @@ class AuthService:
                     if not existing_member:
                         # Add as member with target role
                         TripRepository.add_member(db, invite.trip_id, user.id, invite.role)
-                        
-                        # Mark invite as used
-                        invite.used = True
+
+                        # Signing in via the invite link is how the user accepts the invite
+                        invite.status = "accepted"
                         db.commit()
                         
                         # Log activity

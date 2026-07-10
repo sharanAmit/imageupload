@@ -340,6 +340,8 @@ export async function renderTripDetails(container, params) {
                             <div class="d-flex flex-column gap-3">
                                 ${trip.members.map(member => {
                                     const mUser = member.user || {};
+                                    const isPending = member.status === "pending";
+                                    const isDeclined = member.status === "declined";
                                     return `
                                         <div class="d-flex justify-content-between align-items-center">
                                             <div class="d-flex align-items-center gap-2">
@@ -347,12 +349,16 @@ export async function renderTripDetails(container, params) {
                                                     ${mUser.name ? mUser.name.charAt(0).toUpperCase() : '?'}
                                                 </div>
                                                 <div>
-                                                    <div class="fw-semibold fs-7">${mUser.name || 'Member'}</div>
+                                                    <div class="fw-semibold fs-7">
+                                                        ${mUser.name || 'Member'}
+                                                        ${isPending ? `<span class="badge bg-warning text-dark rounded-pill fs-9 py-1 px-2 ms-1">Pending</span>` : ""}
+                                                        ${isDeclined ? `<span class="badge bg-danger rounded-pill fs-9 py-1 px-2 ms-1">Declined</span>` : ""}
+                                                    </div>
                                                     <div class="fs-9 text-secondary">${mUser.email}</div>
                                                 </div>
                                             </div>
                                             <div class="d-flex align-items-center gap-2">
-                                                ${isOwner && member.user_id !== trip.created_by ? `
+                                                ${isDeclined ? "" : (isOwner && member.user_id !== trip.created_by ? `
                                                     <select class="member-role-select form-select form-select-sm border bg-light rounded-pill py-0.5 px-2 fw-semibold text-uppercase text-center" style="font-size: 0.7rem; width: 110px; cursor: pointer; height: auto;" data-id="${member.id}">
                                                         <option value="member" ${member.role === 'member' ? 'selected' : ''}>Member</option>
                                                         <option value="co-owner" ${(member.role === 'owner' || member.role === 'co-owner') ? 'selected' : ''}>Co-Owner</option>
@@ -361,7 +367,7 @@ export async function renderTripDetails(container, params) {
                                                     <span class="badge ${member.user_id === trip.created_by ? 'bg-dark' : 'bg-light text-dark border'} rounded-pill fs-9 py-1 px-2 text-uppercase">
                                                         ${member.user_id === trip.created_by ? 'owner' : (member.role === 'owner' ? 'co-owner' : member.role)}
                                                     </span>
-                                                `}
+                                                `)}
                                                 ${isOwner && member.user_id !== currentUser.id ? `
                                                     <button class="btn btn-link text-danger p-0 ms-1 remove-member-btn" data-id="${member.id}" data-name="${mUser.name}">
                                                         <i class="bi bi-trash fs-8"></i>
@@ -400,7 +406,10 @@ export async function renderTripDetails(container, params) {
                                         let actStr = act.action;
                                         if (act.action === "uploaded_media") actStr = "uploaded memory";
                                         else if (act.action === "deleted_media") actStr = "deleted memory";
-                                        else if (act.action === "invited_member") actStr = "invited member";
+                                        else if (act.action === "invited_member") actStr = "invited a member";
+                                        else if (act.action === "invited_guest") actStr = "sent an invite";
+                                        else if (act.action === "accepted_invite") actStr = "accepted an invite";
+                                        else if (act.action === "removed_invite") actStr = "removed a pending invite";
                                         else if (act.action === "joined_trip") actStr = "joined trip";
                                         
                                         return `
@@ -568,7 +577,7 @@ export async function renderTripDetails(container, params) {
 
                 try {
                     await API.inviteMember(tripUuid, email, role);
-                    window.showToast("Member added to trip successfully!", "success");
+                    window.showToast("Invitation sent! They'll join once they accept.", "success");
                     
                     // Close modal and refresh
                     inviteForm.reset();

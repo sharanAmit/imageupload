@@ -55,20 +55,22 @@ def get_auth_config():
 @router.get("/auth/invite/{token}")
 def get_invite_details(token: str, db: Session = Depends(get_db)):
     from backend.app.models import TripInvite
+    from backend.app.repositories.user_repository import UserRepository
     # We need Session to query, which is why get_db depends
     invite = db.query(TripInvite).filter(
         TripInvite.uuid == token,
-        TripInvite.used == False
+        TripInvite.status == "pending"
     ).first()
     if not invite:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Invite token not found or already used."
+            detail="Invite token not found, already responded to, or expired."
         )
     return {
         "trip_name": invite.trip.trip_name,
         "email": invite.email,
-        "role": invite.role
+        "role": invite.role,
+        "account_exists": UserRepository.get_by_email(db, invite.email) is not None
     }
 
 

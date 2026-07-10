@@ -53,12 +53,22 @@ def delete_trip(
 
 @router.post("/{uuid}/invite", response_model=TripMemberResponse)
 def invite_member(
-    uuid: str, 
-    data: TripInviteRequest, 
-    current_user: User = Depends(AuthService.get_current_user), 
+    uuid: str,
+    data: TripInviteRequest,
+    current_user: User = Depends(AuthService.get_current_user),
     db: Session = Depends(get_db)
 ):
     return TripService.invite_member(db, current_user, uuid, data)
+
+@router.post("/invite/{token}/accept")
+def accept_invite(token: str, db: Session = Depends(get_db)):
+    # Public endpoint (no auth): the invite token itself is the credential, reached via the emailed link
+    return TripService.accept_invite(db, token)
+
+@router.post("/invite/{token}/decline")
+def decline_invite(token: str, db: Session = Depends(get_db)):
+    # Public endpoint (no auth): the invite token itself is the credential, reached via the emailed link
+    return TripService.decline_invite(db, token)
 
 @router.post("/{uuid}/join", response_model=TripMemberResponse)
 def join_trip(

@@ -9,15 +9,25 @@ from backend.app.repositories.user_repository import UserRepository
 from backend.app.repositories.activity_repository import ActivityRepository
 from backend.app.schemas.trip import TripCreate, TripUpdate, TripInviteRequest
 
-def send_trip_invitation_email(trip_name: str, host_name: str, guest_email: str, invite_uuid: str):
+def send_trip_invitation_email(trip_name: str, host_name: str, guest_email: str, invite_uuid: str, account_exists: bool):
     from backend.app.config import settings
     import smtplib
     from email.mime.text import MIMEText
     from email.mime.multipart import MIMEMultipart
 
-    invite_link = f"http://localhost:8082/#/register?invite_token={invite_uuid}"
+    base_url = "http://localhost:8082"
+    decline_link = f"{base_url}/#/invite/{invite_uuid}/decline"
+    if account_exists:
+        accept_link = f"{base_url}/#/invite/{invite_uuid}/accept"
+        accept_label = "Accept Invitation"
+        intro = "Click below to accept or decline:"
+    else:
+        accept_link = f"{base_url}/#/register?invite_token={invite_uuid}"
+        accept_label = "Accept & Register"
+        intro = "Since you don't have an account yet, accept by registering below, or decline if this wasn't meant for you:"
+
     subject = f"You've been invited to join the trip \"{trip_name}\" on Trip Memories!"
-    
+
     html_content = f"""
     <html>
         <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
@@ -25,12 +35,14 @@ def send_trip_invitation_email(trip_name: str, host_name: str, guest_email: str,
                 <h2 style="color: #1A73E8; text-align: center;">Trip Memories Platform</h2>
                 <p>Hello,</p>
                 <p><strong>{host_name}</strong> has invited you to collaborate and share your memories in the trip <strong>"{trip_name}"</strong>.</p>
-                <p>Since you don't have an account yet, click the button below to register and join the trip immediately:</p>
+                <p>{intro}</p>
                 <div style="text-align: center; margin: 30px 0;">
-                    <a href="{invite_link}" style="background-color: #1A73E8; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block;">Accept Invitation & Register</a>
+                    <a href="{accept_link}" style="background-color: #1A73E8; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block; margin: 0 8px;">{accept_label}</a>
+                    <a href="{decline_link}" style="background-color: #f1f3f4; color: #333; padding: 12px 24px; text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block; margin: 0 8px;">Decline</a>
                 </div>
-                <p style="font-size: 12px; color: #666;">If the button doesn't work, copy and paste this link into your browser:<br>
-                <a href="{invite_link}">{invite_link}</a></p>
+                <p style="font-size: 12px; color: #666;">If the buttons don't work, copy and paste these links into your browser:<br>
+                Accept: <a href="{accept_link}">{accept_link}</a><br>
+                Decline: <a href="{decline_link}">{decline_link}</a></p>
                 <hr style="border: 0; border-top: 1px solid #e1e1e1; margin: 20px 0;">
                 <p style="font-size: 11px; color: #999; text-align: center;">This is a private, self-hosted Trip Memories Platform installation.</p>
             </div>
@@ -43,7 +55,8 @@ def send_trip_invitation_email(trip_name: str, host_name: str, guest_email: str,
         print("DEVELOPER MAIL BACKEND (Console Fallback)")
         print(f"To: {guest_email}")
         print(f"Subject: {subject}")
-        print(f"Invite Link: {invite_link}")
+        print(f"Accept Link: {accept_link}")
+        print(f"Decline Link: {decline_link}")
         print("="*80 + "\n")
         return
 
@@ -65,7 +78,8 @@ def send_trip_invitation_email(trip_name: str, host_name: str, guest_email: str,
         print("="*80)
         print(f"To: {guest_email}")
         print(f"Subject: {subject}")
-        print(f"Invite Link: {invite_link}")
+        print(f"Accept Link: {accept_link}")
+        print(f"Decline Link: {decline_link}")
         print("="*80 + "\n")
 
 
@@ -107,29 +121,16 @@ class TripService:
         # Get active members
         members_list = list(trip.members)
         
-        # Get pending invites
+        # Get invites still awaiting a response, plus declined ones (so the owner can see & clear them)
         from backend.app.models import TripInvite
         invites = db.query(TripInvite).filter(
             TripInvite.trip_id == trip.id,
-            TripInvite.used == False
+            TripInvite.status.in_(["pending", "declined"])
         ).all()
-        
+
         for invite in invites:
-            mock_member = {
-                "id": -invite.id,  # Negative ID to distinguish from actual database members
-                "trip_id": trip.id,
-                "user_id": 0,
-                "role": invite.role,
-                "joined_at": invite.created_at,
-                "user": {
-                    "id": 0,
-                    "uuid": invite.uuid,
-                    "name": "Pending Invite",
-                    "email": invite.email,
-                    "created_at": invite.created_at
-                }
-            }
-            members_list.append(mock_member)
+            target_user = UserRepository.get_by_email(db, invite.email)
+            members_list.append(cls._invite_to_member_dict(invite, target_user))
             
         return {
             "id": trip.id,
@@ -200,95 +201,128 @@ class TripService:
         )
 
     @classmethod
+    def _invite_to_member_dict(cls, invite, target_user: Optional[User] = None) -> dict:
+        return {
+            "id": -invite.id,  # Negative ID to distinguish invites from actual membership rows
+            "trip_id": invite.trip_id,
+            "user_id": 0,
+            "role": invite.role,
+            "joined_at": invite.created_at,
+            "status": invite.status,
+            "user": {
+                "id": 0,
+                "uuid": invite.uuid,
+                "name": target_user.name if target_user else "Pending Invite",
+                "email": invite.email,
+                "created_at": invite.created_at
+            }
+        }
+
+    @classmethod
     def invite_member(cls, db: Session, user: User, trip_uuid: str, data: TripInviteRequest):
         trip = TripRepository.get_by_uuid(db, trip_uuid)
         if not trip:
             raise HTTPException(status_code=404, detail="Trip not found")
-            
+
         # Verify current user is owner or co-owner
         member = TripRepository.get_member(db, trip.id, user.id)
         if not member or member.role not in ["owner", "co-owner"]:
             raise HTTPException(status_code=403, detail="Only trip owners or co-owners can invite members")
-            
+
         # Co-owners can only invite members. Only the primary owner can invite other co-owners.
         if member.role == "co-owner" and data.role != "member":
             raise HTTPException(status_code=403, detail="Co-owners can only invite regular members, not other co-owners")
-            
-        # Find target user by email
+
+        # Find target user by email (may or may not already have an account)
         target_user = UserRepository.get_by_email(db, data.email)
-        if not target_user:
-            # Guest invite flow
-            from backend.app.models import TripInvite
-            
-            # Check if active invite already exists
-            existing_invite = db.query(TripInvite).filter(
-                TripInvite.trip_id == trip.id,
-                TripInvite.email == data.email,
-                TripInvite.used == False
-            ).first()
-            
-            if existing_invite:
-                invite_token = existing_invite.uuid
-                created_at = existing_invite.created_at
-                invite_id = existing_invite.id
-            else:
-                new_invite = TripInvite(
-                    trip_id=trip.id,
-                    email=data.email,
-                    role=data.role
-                )
-                db.add(new_invite)
-                db.commit()
-                db.refresh(new_invite)
-                invite_token = new_invite.uuid
-                created_at = new_invite.created_at
-                invite_id = new_invite.id
-                
-            # Deliver email
-            send_trip_invitation_email(trip.trip_name, user.name, data.email, invite_token)
-            
-            # Log activity
-            ActivityRepository.create_log(
-                db=db,
-                user_id=user.id,
-                trip_id=trip.id,
-                action="invited_guest",
-                target_id=invite_token
-            )
-            
-            # Return mock member response
-            return {
-                "id": -invite_id,
-                "trip_id": trip.id,
-                "user_id": 0,
-                "role": data.role,
-                "joined_at": created_at,
-                "user": {
-                    "id": 0,
-                    "uuid": invite_token,
-                    "name": "Pending Invite",
-                    "email": data.email,
-                    "created_at": created_at
-                }
-            }
-            
-        # Check if already a member
-        existing_member = TripRepository.get_member(db, trip.id, target_user.id)
-        if existing_member:
-            raise HTTPException(status_code=400, detail="User is already a member of this trip")
-            
-        # Add member
-        new_member = TripRepository.add_member(db, trip.id, target_user.id, data.role)
-        
+        if target_user:
+            existing_member = TripRepository.get_member(db, trip.id, target_user.id)
+            if existing_member:
+                raise HTTPException(status_code=400, detail="User is already a member of this trip")
+
+        # Every invite goes through a pending state until the invitee accepts or declines by email
+        from backend.app.models import TripInvite
+
+        existing_invite = db.query(TripInvite).filter(
+            TripInvite.trip_id == trip.id,
+            TripInvite.email == data.email,
+            TripInvite.status == "pending"
+        ).first()
+
+        if existing_invite:
+            invite = existing_invite
+            invite.role = data.role
+            db.commit()
+            db.refresh(invite)
+        else:
+            invite = TripInvite(trip_id=trip.id, email=data.email, role=data.role)
+            db.add(invite)
+            db.commit()
+            db.refresh(invite)
+
+        # Deliver email
+        send_trip_invitation_email(trip.trip_name, user.name, data.email, invite.uuid, account_exists=target_user is not None)
+
         # Log activity
         ActivityRepository.create_log(
-            db=db, 
-            user_id=user.id, 
-            trip_id=trip.id, 
-            action="invited_member",
-            target_id=target_user.uuid
+            db=db,
+            user_id=user.id,
+            trip_id=trip.id,
+            action="invited_member" if target_user else "invited_guest",
+            target_id=(target_user.uuid if target_user else invite.uuid)
         )
-        return new_member
+
+        return cls._invite_to_member_dict(invite, target_user)
+
+    @classmethod
+    def accept_invite(cls, db: Session, token: str) -> dict:
+        from backend.app.models import TripInvite
+        invite = db.query(TripInvite).filter(
+            TripInvite.uuid == token,
+            TripInvite.status == "pending"
+        ).first()
+        if not invite:
+            raise HTTPException(status_code=404, detail="This invitation is invalid, expired, or already responded to")
+
+        target_user = UserRepository.get_by_email(db, invite.email)
+        if not target_user:
+            raise HTTPException(
+                status_code=400,
+                detail="No account exists yet for this email. Please register using the invite link to accept."
+            )
+
+        existing_member = TripRepository.get_member(db, invite.trip_id, target_user.id)
+        if not existing_member:
+            TripRepository.add_member(db, invite.trip_id, target_user.id, invite.role)
+            ActivityRepository.create_log(
+                db=db,
+                user_id=target_user.id,
+                trip_id=invite.trip_id,
+                action="accepted_invite",
+                target_id=invite.uuid
+            )
+
+        invite.status = "accepted"
+        db.commit()
+
+        trip = TripRepository.get_by_id(db, invite.trip_id)
+        return {"trip_name": trip.trip_name if trip else None, "role": invite.role}
+
+    @classmethod
+    def decline_invite(cls, db: Session, token: str) -> dict:
+        from backend.app.models import TripInvite
+        invite = db.query(TripInvite).filter(
+            TripInvite.uuid == token,
+            TripInvite.status == "pending"
+        ).first()
+        if not invite:
+            raise HTTPException(status_code=404, detail="This invitation is invalid, expired, or already responded to")
+
+        invite.status = "declined"
+        db.commit()
+
+        trip = TripRepository.get_by_id(db, invite.trip_id)
+        return {"trip_name": trip.trip_name if trip else None}
 
     @classmethod
     def join_trip(cls, db: Session, user: User, trip_uuid: str) -> TripMember:
@@ -331,11 +365,11 @@ class TripService:
             invite = db.query(TripInvite).filter(
                 TripInvite.trip_id == trip.id,
                 TripInvite.id == invite_id,
-                TripInvite.used == False
+                TripInvite.status != "accepted"
             ).first()
             if not invite:
                 raise HTTPException(status_code=404, detail="Invite not found in this trip")
-                
+
             # Co-owners cannot remove co-owner invites
             if curr_member.role == "co-owner" and invite.role in ["owner", "co-owner"]:
                 raise HTTPException(status_code=403, detail="Co-owners cannot remove co-owner invites")
@@ -401,14 +435,14 @@ class TripService:
             invite = db.query(TripInvite).filter(
                 TripInvite.trip_id == trip.id,
                 TripInvite.id == invite_id,
-                TripInvite.used == False
+                TripInvite.status == "pending"
             ).first()
             if not invite:
                 raise HTTPException(status_code=404, detail="Pending invitation not found")
             invite.role = role
             db.commit()
             db.refresh(invite)
-            
+
             # Log activity
             ActivityRepository.create_log(
                 db=db,
@@ -417,22 +451,9 @@ class TripService:
                 action="updated_invite_role",
                 target_id=invite.uuid
             )
-            
-            # Return mock member response
-            return {
-                "id": -invite.id,
-                "trip_id": trip.id,
-                "user_id": 0,
-                "role": invite.role,
-                "joined_at": invite.created_at,
-                "user": {
-                    "id": 0,
-                    "uuid": invite.uuid,
-                    "name": "Pending Invite",
-                    "email": invite.email,
-                    "created_at": invite.created_at
-                }
-            }
+
+            target_user = UserRepository.get_by_email(db, invite.email)
+            return cls._invite_to_member_dict(invite, target_user)
             
         # Regular member
         target_member = db.query(TripMember).filter(

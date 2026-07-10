@@ -83,6 +83,13 @@ const dynamicRoutes = [
         file: "trips.js",
         action: "renderTripDetails",
         paramName: "tripUuid"
+    },
+    {
+        pattern: /^#\/invite\/([a-zA-Z0-9-]+)\/(accept|decline)$/,
+        protected: false,
+        file: "invite_response.js",
+        action: "renderInviteResponse",
+        paramNames: ["token", "action"]
     }
 ];
 
@@ -170,7 +177,13 @@ class Router {
                 const match = cleanHash.match(dynRoute.pattern);
                 if (match) {
                     routeMatch = dynRoute;
-                    params[dynRoute.paramName] = match[1];
+                    if (dynRoute.paramNames) {
+                        dynRoute.paramNames.forEach((name, i) => {
+                            params[name] = match[i + 1];
+                        });
+                    } else {
+                        params[dynRoute.paramName] = match[1];
+                    }
                     break;
                 }
             }
